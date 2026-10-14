@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <!--
+      .NET 11 needs the .NET 11 SDK installed. It is opt-in so that local builds with an older SDK keep working:
+        dotnet build -p:IncludeNet11=true      (CI sets this as an environment variable)
+      Once .NET 11 is GA and you've installed its SDK, you can simply make this default to true.
+    -->
+    <IncludeNet11 Condition="'$(IncludeNet11)' == ''">false</IncludeNet11>
+    <LiteMediatorTargets>net6.0;net7.0;net8.0;net9.0;net10.0</LiteMediatorTargets>
+    <LiteMediatorTargets Condition="'$(IncludeNet11)' == 'true'">$(LiteMediatorTargets);net11.0</LiteMediatorTargets>
+
+    <!-- net6.0 / net7.0 are out of Microsoft support but are intentionally still supported by this library -->
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <NoWarn>$(NoWarn);NETSDK1138</NoWarn>
+  </PropertyGroup>
+</Project>
