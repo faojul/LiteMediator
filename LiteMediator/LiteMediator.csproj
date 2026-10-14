@@ -6,7 +6,7 @@
 		<RootNamespace>LiteMediator</RootNamespace>
 
 		<!-- NuGet Package Info -->
-		<Version>2.1.1</Version>
+		<Version>2.1.2</Version>
 		<Authors>Faojul Ahsan</Authors>
 		<Company>Faojul Ahsan</Company>
 		<PackageId>LiteMediator.Lite</PackageId>
