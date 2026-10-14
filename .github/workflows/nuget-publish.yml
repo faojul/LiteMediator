@@ -1,27 +1,55 @@
-name: Build & Publish NuGet Package
+name: Build, Test & Publish NuGet Package
 
 on:
   push:
     branches:
-      - main # Run on all pushes to main
+      - main
     tags:
-      - "v*.*.*" # Publish only on version tags
+      - "v*.*.*"            # Publish only on version tags
     paths-ignore:
       - "**.md"
-  workflow_dispatch: # Allow manual trigger
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  # Adds net11.0 to the library + test targets (see Directory.Build.props)
+  IncludeNet11: "true"
 
 jobs:
-  build-and-publish:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      # Runtimes are needed to RUN the tests on every target framework.
+      - name: Setup .NET 6 - 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: |
+            6.0.x
+            7.0.x
+            8.0.x
+            9.0.x
+            10.0.x
+
+      # Installed last so it becomes the SDK used for the build.
+      # Once .NET 11 is GA you can delete the dotnet-quality line.
+      - name: Setup .NET 11
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: "preview"
+
+      - name: Show .NET info
+        run: dotnet --info
 
       - name: Restore dependencies
         run: dotnet restore
@@ -29,12 +57,47 @@ jobs:
       - name: Build solution
         run: dotnet build --configuration Release --no-restore
 
-      - name: Run tests
-        run: dotnet test --configuration Release --no-restore --verbosity normal
+      - name: Run tests (all target frameworks)
+        run: dotnet test --configuration Release --no-build --verbosity normal
 
       - name: Pack NuGet package
-        run: dotnet pack --configuration Release --no-build --output ./nupkgs
+        run: dotnet pack LiteMediator/LiteMediator.csproj --configuration Release --no-build --output ./nupkgs
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs/*
+
+  publish:
+    # Only for version tags like v2.1.0, and only if build + tests passed
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # needed to create the GitHub release
+
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs
+
+      - name: Verify tag matches package version
+        run: |
+          PKG_VERSION=$(ls ./nupkgs/LiteMediator.Lite.*.nupkg | head -n1 | sed -E 's/.*LiteMediator\.Lite\.(.*)\.nupkg/\1/')
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Package: $PKG_VERSION | Tag: $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match <Version>$PKG_VERSION</Version> in LiteMediator.csproj"
+            exit 1
+          fi
 
       - name: Push package to NuGet
-        if: startsWith(github.ref, 'refs/tags/v') # <-- Only publish on version tags
-        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.LITEMEDIATOR_API_KEY }} --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push "./nupkgs/*.nupkg" --api-key ${{ secrets.LITEMEDIATOR_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" ./nupkgs/*.nupkg --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
