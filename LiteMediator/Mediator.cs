@@ -1,51 +1,42 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 
 namespace LiteMediator
 {
     internal class Mediator : IMediator
     {
+        // Wrappers are created once per (request, response) / notification type and then reused.
+        private static readonly ConcurrentDictionary<(Type Request, Type Response), object> RequestWrappers = new();
+        private static readonly ConcurrentDictionary<Type, NotificationHandlerWrapper> NotificationWrappers = new();
+
         private readonly IServiceProvider _serviceProvider;
+
         public Mediator(IServiceProvider serviceProvider)
         {
             _serviceProvider = serviceProvider;
         }
+
         public async Task<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken cancellationToken = default)
         {
-            var requestType = request.GetType();
-            var handlerType = typeof(IRequestHandler<,>).MakeGenericType(requestType, typeof(TResponse));
+            if (request is null) throw new ArgumentNullException(nameof(request));
 
-            // Resolve the handler
-            dynamic handler = _serviceProvider.GetRequiredService(handlerType);
+            var wrapper = (RequestHandlerWrapper<TResponse>)RequestWrappers.GetOrAdd(
+                (request.GetType(), typeof(TResponse)),
+                static key => Activator.CreateInstance(
+                    typeof(RequestHandlerWrapperImpl<,>).MakeGenericType(key.Request, key.Response))!);
 
-            // Resolve pipeline behaviors
-            var behaviorType = typeof(IPipelineBehavior<,>).MakeGenericType(requestType, typeof(TResponse));
-            var behaviors = _serviceProvider.GetServices(behaviorType).Cast<dynamic>().ToList();
-
-            // Create the final delegate (handler call)
-            RequestHandlerDelegate<TResponse> handlerDelegate = () =>
-                handler.Handle((dynamic)request, cancellationToken);
-
-            // Compose the behaviors (in reverse order)
-            foreach (var behavior in behaviors.AsEnumerable().Reverse())
-            {
-                var next = handlerDelegate;
-                handlerDelegate = () => behavior.Handle((dynamic)request, next, cancellationToken);
-            }
-
-            return await handlerDelegate();
+            return await wrapper.Handle(request, _serviceProvider, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task Publish(INotification notification, CancellationToken cancellationToken = default)
         {
-            var notificationType = notification.GetType();
-            var handlerType = typeof(INotificationHandler<>).MakeGenericType(notificationType);
+            if (notification is null) throw new ArgumentNullException(nameof(notification));
 
-            var handlers = _serviceProvider.GetServices(handlerType).Cast<dynamic>().ToList();
+            var wrapper = NotificationWrappers.GetOrAdd(
+                notification.GetType(),
+                static type => (NotificationHandlerWrapper)Activator.CreateInstance(
+                    typeof(NotificationHandlerWrapperImpl<>).MakeGenericType(type))!);
 
-            foreach (var handler in handlers)
-            {
-                await handler.Handle((dynamic)notification, cancellationToken);
-            }
+            await wrapper.Handle(notification, _serviceProvider, cancellationToken).ConfigureAwait(false);
         }
     }
 }

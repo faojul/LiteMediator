@@ -1,27 +1,34 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>net6.0;net7.0;net8.0</TargetFrameworks>
+		<TargetFrameworks>$(LiteMediatorTargets)</TargetFrameworks>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<RootNamespace>LiteMediator</RootNamespace>
 
 		<!-- NuGet Package Info -->
-		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-		<Version>2.0.3</Version>
+		<Version>2.1.1</Version>
 		<Authors>Faojul Ahsan</Authors>
 		<Company>Faojul Ahsan</Company>
 		<PackageId>LiteMediator.Lite</PackageId>
-		<Description>Lightweight Mediator pattern implementation with pipeline support. A lightweight alternative to MediatR for .NET Core projects</Description>
-		<PackageTags>mediator csharp dotnet cqrs</PackageTags>
+		<Description>Lightweight Mediator pattern implementation with pipeline behaviors, notifications and FluentValidation support. A lightweight alternative to MediatR for .NET 6 - .NET 11.</Description>
+		<PackageTags>mediator mediatr csharp dotnet cqrs pipeline</PackageTags>
 		<RepositoryUrl>https://github.com/faojul/LiteMediator</RepositoryUrl>
 		<PackageProjectUrl>https://github.com/faojul/LiteMediator</PackageProjectUrl>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
+
+		<!-- Symbols + reproducible builds -->
+		<IncludeSymbols>true</IncludeSymbols>
+		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
 	</PropertyGroup>
 
 	<ItemGroup>
+		<!-- FluentValidation 12 dropped net6/net7, so stay on 11.x while we support them -->
 		<PackageReference Include="FluentValidation" Version="11.11.0" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="6.0.2" />
+		<!-- Abstractions is all we need (AddScoped / GetServices ...); consumers bring their own container -->
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="6.0.0" />
 		<None Include="..\README.md" Pack="true" PackagePath="" />
 	</ItemGroup>
 </Project>

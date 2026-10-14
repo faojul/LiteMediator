@@ -1,22 +1,28 @@
 # LiteMediator
 
-A super-lightweight, high-performance alternative to MediatR with 97% test coverage, CI/CD via GitHub Actions, and FluentValidation integration built in.
+A super-lightweight, high-performance alternative to MediatR for .NET 6 → .NET 11, with CI/CD via GitHub Actions and FluentValidation integration built in.
 
 [![Build Status](https://github.com/faojul/LiteMediator/actions/workflows/nuget-publish.yml/badge.svg)](https://github.com/faojul/LiteMediator/actions/workflows/nuget-publish.yml)
 [![NuGet Version](https://img.shields.io/nuget/v/LiteMediator.Lite.svg?style=flat-square)](https://www.nuget.org/packages/LiteMediator.Lite/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Code Coverage](https://img.shields.io/badge/coverage-97%25-brightgreen)](#)
 
 A lightweight .NET mediator library designed for clean CQRS architecture and fast performance.
 
 ---
 
 ## Why LiteMediator?
-- Minimal overhead—no external dependencies
+- Minimal overhead — only depends on FluentValidation and `Microsoft.Extensions.DependencyInjection.Abstractions`
 - Full Clean Architecture & CQRS support
 - Integrates FluentValidation out of the box
-- Easy setup—only one line to replace MediatR
-- Reliable CI/CD & 97% unit test coverage
+- Easy setup — one line to replace MediatR
+- Works with `public` **and** `internal` requests and handlers
+- Tested on every supported target framework in CI
+
+## 🎯 Supported frameworks
+
+| .NET 6 | .NET 7 | .NET 8 | .NET 9 | .NET 10 | .NET 11 |
+| ------ | ------ | ------ | ------ | ------- | ------- |
+| ✅      | ✅      | ✅      | ✅      | ✅       | ✅       |
 
   
 ## ✨ Features
@@ -25,12 +31,12 @@ A lightweight .NET mediator library designed for clean CQRS architecture and fas
 | ---------------------------------------- | --------- | --------------------------------------------------------- |
 | `IMediator.Send()`                       | ✅         | Core command/request dispatching                          |
 | `IRequest<TResponse>`                    | ✅         | Request/command abstraction                               |
-| `IRequestHandler<TRequest, TResponse>`   | ✅         | Custom request handler logic                              |
+| `IRequestHandler<TRequest, TResponse>`   | ✅         | Custom request handler logic (public or internal)         |
 | `IPipelineBehavior<TRequest, TResponse>` | ✅         | Middleware-style behavior support ([customizing](#-customizing-validation-behavior))                        |
-| `ValidationBehavior` (FluentValidation)  | ✅         | Built-in validation using FluentValidation  ([guide](#-customizing-validation-behavior))              |
+| `ValidationBehavior` (FluentValidation)  | ✅         | Registered automatically ([guide](#-customizing-validation-behavior))              |
 | `INotification` + `Publish()`            | ✅         | Event publishing to multiple handlers                     |
 | `INotificationHandler<T>`                | ✅         | Handle published domain events                            |
-| `RegisterHandlersWithMediator()`         | ✅         | Auto-registration of all request handlers                 |
+| `RegisterHandlersWithMediator()`         | ✅         | Auto-registration of all request/notification handlers    |
 | `RegisterBehaviorsWithMediator()`        | ✅         | Auto-registration of pipeline behaviors                   |
 | `AddLiteMediator()` extensions           | ✅         | Simplified registration for monoliths & modular monoliths |
 
@@ -84,10 +90,12 @@ services.AddLiteMediator(
 ````
     
 This registers:
-   - All IRequestHandler(s)
-   - All IPipelineBehavior(s) (including validation)
-   - IMediator service
+   - All `IRequestHandler`s and `INotificationHandler`s (including `internal` ones)
+   - All `IPipelineBehavior`s found in the assemblies
+   - The built-in `ValidationBehavior<,>` (FluentValidation)
+   - `IMediator` service
 
+Calling it more than once with the same assembly is safe — nothing is registered twice.
 
 ✅ Minimal setup for monolithic or layered apps.
 
@@ -137,7 +145,7 @@ public class MyCommandValidator : AbstractValidator<MyCommand>
 ````csharp
 services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 ````
-✅ Your validators will automatically be executed before calling the handler, thanks to the ValidationBehavior.
+✅ Your validators will automatically be executed before calling the handler, thanks to the ValidationBehavior. A failure throws `LiteMediator.ValidationException` (see `.Errors`).
 
 
 ## 🔍 Example
@@ -180,6 +188,8 @@ public class SendWelcomeEmail : INotificationHandler<UserCreated>
 ````csharp
 await mediator.Publish(new UserCreated("Alice"));
 ````
+
+Notification handlers run sequentially, in registration order.
 
 ## 🛠 Customizing Validation Behavior
 LiteMediator includes `ValidationBehavior<TRequest, TResponse>` using FluentValidation.
@@ -236,26 +246,52 @@ public class MyNoOpValidationBehavior<TRequest, TResponse>
 services.AddTransient(typeof(IPipelineBehavior<,>), typeof(MyNoOpValidationBehavior<,>));
 ````
 
+Behaviors run in registration order: the first registered behavior is the outermost one.
+
+## 🔒 Internal types & visibility
+Requests, handlers and notification handlers may be `internal`, so a feature assembly doesn't have to expose its implementation details:
+
+```csharp
+internal record GetOrder(int Id) : IRequest<OrderDto>;
+
+internal class GetOrderHandler : IRequestHandler<GetOrder, OrderDto>
+{
+    public GetOrderHandler(IOrderRepository repo) { /* ... */ }   // constructor must be public
+    public Task<OrderDto> Handle(GetOrder request, CancellationToken ct) { /* ... */ }
+}
+```
+
+Things to keep in mind:
+- Pass the assembly that contains the handlers to `AddLiteMediator(...)`.
+- The handler's **constructor must be `public`** — that's a Microsoft DI rule, not a LiteMediator one.
+- Open-generic handler classes (`class H<T> : IRequestHandler<Req<T>, T>`) are not auto-registered; register them yourself.
+
 ## 🧪 Testing
-- ✅ 97% Unit Test Coverage
-- ✅ Integration tests for Send, Publish, validation pipeline
+- ✅ Unit + integration tests for Send, Publish, validation pipeline, internal types and registration
+- ✅ The test project multi-targets the same frameworks as the library (net6.0 → net11.0)
 - ✅ GitHub Actions CI/CD
+
+```bash
+dotnet test                         # net6.0 … net10.0 (needs those runtimes installed)
+dotnet test -p:IncludeNet11=true    # also net11.0 (needs the .NET 11 SDK)
+```
 
 
 ## 🔧 CI/CD
 LiteMediator uses GitHub Actions to automatically:
-- Build & Test on every push
-- Publish NuGet package on version tag (e.g., v1.0.1)
+- Build & test on every push and pull request (all target frameworks)
+- On a version tag (e.g., `v2.1.0`): verify the tag matches the package version, publish to NuGet, and create a GitHub release
+
+See [RELEASE.md](RELEASE.md) for the checklist.
 
 
 ## 📁 Folder Structure
 ````
-src/
-  LiteMediator/                # Main library
-tests/
-  LiteMediator.Tests/          # xUnit integration and unit tests
+LiteMediator/                  # Main library
+LiteMediator.Tests/            # xUnit integration and unit tests
+Directory.Build.props          # Shared target frameworks
 .github/
-  workflows/nuget-publish.yml         # CI/CD pipeline
+  workflows/nuget-publish.yml  # CI/CD pipeline
 ````
 
 ## 📃 License
